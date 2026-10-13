@@ -1,0 +1,38 @@
+DECLARATION OF PROVENANCE
+Phoenix Protocol — Demonstration Zero
+Architect: Justin Neal Thomas Conzet
+Date of declaration: October 12, 2026
+
+I, Justin Neal Thomas Conzet, architect of the Phoenix Protocol and the Conzetian framework, hereby declare the following:
+
+This document accompanies a cryptographic hash representing one complete, reproducible agent execution round-trip through the Phoenix substrate. The hash is not a claim of intelligence. It is a claim of existence, ordering, and authorship.
+
+THE HASH
+281a9c6b944d30220be7b209492d2183d3931f94175d086b7cd90995cfe05593
+
+WHAT IT SEALS
+- Task: Summarize the thesis 'AGI is an architecture problem, not a compute problem' in one sentence.
+- Substrate: Phoenix Protocol deterministic recursion, five bounded rounds.
+- Trace: five SHA-256 state transitions, each derived from the prior.
+- Scaling: Conzetian constant at each depth, base phi 1.6180339887.
+- Duration: 0.000045 seconds on reference hardware.
+- Permaweb anchor (prior): eba44d95634073ea8e14960e52
+
+WHY IT IS BEING TIMESTAMPED
+To place this hash on the Bitcoin blockchain via OpenTimestamps, creating an independent, publicly verifiable record that this execution existed at this moment, produced by this author, under this specification. No trusted third party. The chain is the witness.
+
+WHAT IT DOES NOT CLAIM
+- General intelligence
+- Permanent memory
+- Production superintelligence
+- 74,088,000 live agents
+
+Those remain future demonstrations. This is the seed crystal: one loop, fully visible, independently re-runnable.
+
+Clone the repository at github.com/Zygros/PHOENIX-PROTOCOL-ULTIMATE, run demos/demonstration_zero.py, and the hash recomputes identically.
+
+LAW: Always add. Never take.
+
+— Justin Neal Thomas Conzet
+Zygros
+October 12, 2026
