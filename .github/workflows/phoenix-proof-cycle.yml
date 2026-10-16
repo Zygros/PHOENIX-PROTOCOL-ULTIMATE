@@ -3,10 +3,14 @@ on:
   push:
     paths:
       - "tools/phoenix_proof_cycle.py"
+      - "tools/phoenix_receipt_contract.py"
+      - "tools/test_phoenix_receipt_contract.py"
       - ".github/workflows/phoenix-proof-cycle.yml"
   pull_request:
     paths:
       - "tools/phoenix_proof_cycle.py"
+      - "tools/phoenix_receipt_contract.py"
+      - "tools/test_phoenix_receipt_contract.py"
       - ".github/workflows/phoenix-proof-cycle.yml"
   workflow_dispatch:
 
@@ -18,21 +22,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Run deterministic proof-cycle tests
         run: python tools/phoenix_proof_cycle.py --self-test
+      - name: Run independent receipt contract tests
+        run: python tools/test_phoenix_receipt_contract.py
       - name: Verify a clean cycle
         run: python tools/phoenix_proof_cycle.py --task "CI acceptance cycle" --output phoenix-proof-cycle.json
+      - name: Independently verify clean receipt
+        run: python tools/phoenix_receipt_contract.py phoenix-proof-cycle.json
       - name: Verify fault detection and bounded repair
         run: python tools/phoenix_proof_cycle.py --task "CI seeded fault" --inject-defect --output phoenix-proof-cycle-repaired.json
+      - name: Independently verify repaired receipt
+        run: python tools/phoenix_receipt_contract.py phoenix-proof-cycle-repaired.json
+      - name: Verify unrepaired failure remains explicit
+        run: |
+          if python tools/phoenix_proof_cycle.py --task "CI unrepaired fault" --inject-defect --no-repair --output phoenix-proof-cycle-failed.json; then
+            echo "Expected failure exit code was not returned"
+            exit 1
+          else
+            echo "Expected failure exit code observed"
+          fi
+      - name: Independently verify failure receipt
+        run: python tools/phoenix_receipt_contract.py phoenix-proof-cycle-failed.json
       - name: Upload reproducible cycle receipts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: phoenix-proof-cycle-receipts
           path: |
             phoenix-proof-cycle.json
             phoenix-proof-cycle-repaired.json
+            phoenix-proof-cycle-failed.json
