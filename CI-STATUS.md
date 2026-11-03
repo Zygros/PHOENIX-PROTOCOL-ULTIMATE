@@ -29,3 +29,21 @@ The earlier note above records a historical limitation from a prior upgrade. The
 - **Artifact:** ID `13267390936`, 3,175 bytes, SHA-256 `3a5da033af7f9a8ad4528c51688e03e73300c8f5bccc1ef3191cadca9688824e`.
 - **Independent read-back:** downloaded ZIP SHA-256 matches the GitHub digest; all three receipts independently verify as `PASS` (4 events), `REPAIRED` (6 events), and explicit `FAIL` (4 events). All five external-evidence flags remain false in each receipt.
 - **Audit:** [Phoenix Audit #41708321215](https://github.com/Zygros/PHOENIX-PROTOCOL-ULTIMATE/actions/runs/41708321215) completed successfully on the same tested code head.
+
+## 2026-11-03 — final receipt-contract hardening and post-merge verification
+
+The independent receipt verifier now rejects external-evidence flags in the deterministic fixture, binds pre-repair errors to the initial verifier ledger event, and rejects boolean sequence values.
+
+Final PR-head run [#41711762834](https://github.com/Zygros/PHOENIX-PROTOCOL-ULTIMATE/actions/runs/41711762834) passed:
+- 8 Phoenix runner self-tests.
+- 15 independent receipt-contract tests.
+- PASS, REPAIRED, and FAIL receipt verification, with 4, 6, and 4 hash-chained events respectively.
+
+Artifact ID: `13266249198`  
+Artifact SHA-256: `60d43cee4cedce9dd28fa5513c21dbbfbfb6dab110536026f1bc84e2d9cbf1f3`
+
+The artifact ZIP was downloaded and its SHA-256 independently recalculated. Each receipt's outer export hash, finding hash, ledger chain, terminal binding, and five false external-evidence flags were independently checked.
+
+PR #4 merged as `4b91814f906ea7943625544958c88d9cb8f0aea7`. Post-merge [Proof Cycle #41711973409](https://github.com/Zygros/PHOENIX-PROTOCOL-ULTIMATE/actions/runs/41711973409) and [Phoenix Audit #41711973487](https://github.com/Zygros/PHOENIX-PROTOCOL-ULTIMATE/actions/runs/41711973487) both passed.
+
+Federation-wide record: [2026-11-03 propagation and receipt-hardening evidence](https://github.com/Zygros/sovereign-federation/blob/main/evidence/audits/2026-11-03-federation-propagation-and-receipt-hardening.md).
