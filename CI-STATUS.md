@@ -23,9 +23,9 @@ The earlier note above records a historical limitation from a prior upgrade. The
 
 **Scope boundary:** this is a fresh branch-specific CI fixture, not a run on current `main`. It establishes internal receipt integrity and explicit failure behavior; it does not establish external AI execution, real web research, external timestamp anchoring, production deployment, or live distributed federation.
 
-### Latest pull-request-head confirmation
+### Latest proof-cycle-validated code head (before the evidence-only status append)
 
-- **Proof Cycle:** [run #41708321444](https://github.com/Zygros/PHOENIX-PROTOCOL-ULTIMATE/actions/runs/41708321444) completed successfully on the current PR head `52290b38c31297fab64db9a49d46b25c6ac2a773`.
+- **Proof Cycle:** [run #41708321444](https://github.com/Zygros/PHOENIX-PROTOCOL-ULTIMATE/actions/runs/41708321444) completed successfully on code head `52290b38c31297fab64db9a49d46b25c6ac2a773`. The branch later advanced to `3660dc971fab3a898b5536b8455fd1daf9e2496a` only to append this status record; the proof-cycle code and workflow were unchanged.
 - **Artifact:** ID `13267390936`, 3,175 bytes, SHA-256 `3a5da033af7f9a8ad4528c51688e03e73300c8f5bccc1ef3191cadca9688824e`.
 - **Independent read-back:** downloaded ZIP SHA-256 matches the GitHub digest; all three receipts independently verify as `PASS` (4 events), `REPAIRED` (6 events), and explicit `FAIL` (4 events). All five external-evidence flags remain false in each receipt.
-- **Audit:** [Phoenix Audit #41708321215](https://github.com/Zygros/PHOENIX-PROTOCOL-ULTIMATE/actions/runs/41708321215) completed successfully on the same PR head.
+- **Audit:** [Phoenix Audit #41708321215](https://github.com/Zygros/PHOENIX-PROTOCOL-ULTIMATE/actions/runs/41708321215) completed successfully on the same tested code head.
