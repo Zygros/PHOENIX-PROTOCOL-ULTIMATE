@@ -33,7 +33,8 @@ def verify_ledger(ledger):
         return False, "ledger must be a non-empty list"
     prev, prev_time = GENESIS, None
     for i, r in enumerate(ledger, 1):
-        if not isinstance(r, dict) or r.get("sequence") != i:
+        if (not isinstance(r, dict) or isinstance(r.get("sequence"), bool)
+                or not isinstance(r.get("sequence"), int) or r.get("sequence") != i):
             return False, f"invalid record or sequence at {i}"
         if r.get("schema") != SCHEMA or r.get("event") not in EVENTS or not isinstance(r.get("payload"), dict):
             return False, f"invalid schema, event, or payload at {i}"
@@ -100,12 +101,18 @@ def verify_receipt(r):
         return False, "status disagrees with finding validation"
     b = r.get("evidence_boundary")
     keys = ("external_ai", "web_research", "bitcoin_anchor", "arweave_anchor", "ots_anchor")
-    if not isinstance(b, dict) or any(not isinstance(b.get(k), bool) for k in keys):
+    if not isinstance(b, dict) or any(type(b.get(k)) is not bool for k in keys):
         return False, "evidence boundary missing or malformed"
-    if not isinstance(r.get("errors_before_repair"), list):
-        return False, "pre-repair errors missing"
+    if any(b[k] for k in keys):
+        return False, "deterministic fixture cannot claim external evidence"
     ok, msg = verify_ledger(r.get("ledger"))
     if not ok: return False, msg
+    errors_before_repair = r.get("errors_before_repair")
+    initial_errors = r["ledger"][2]["payload"].get("errors")
+    if (not isinstance(errors_before_repair, list)
+            or not all(isinstance(error, str) for error in errors_before_repair)
+            or errors_before_repair != initial_errors):
+        return False, "pre-repair errors do not match initial verifier record"
     end = r["ledger"][-1]
     if end["event"] != "cycle.finished" or end["payload"].get("status") != status or end["payload"].get("finding_sha256") != r["finding_sha256"]:
         return False, "ledger does not commit to exported status and finding"
