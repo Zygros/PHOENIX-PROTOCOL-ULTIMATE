@@ -97,5 +97,22 @@ class ReceiptContractTests(unittest.TestCase):
         self.assertEqual(receipt["ledger"][-1]["payload"]["finding_sha256"], receipt["finding_sha256"])
         self.assertTrue(verify_receipt(receipt)[0])
 
+    def test_external_evidence_claims_rejected_even_when_resealed(self):
+        receipt = run_cycle("evidence boundary")
+        for flag in ("external_ai", "web_research", "bitcoin_anchor", "arweave_anchor", "ots_anchor"):
+            candidate = copy.deepcopy(receipt)
+            candidate["evidence_boundary"][flag] = True
+            reseal(candidate)
+            self.assertFalse(verify_receipt(candidate)[0], flag)
+
+    def test_pre_repair_errors_are_bound_to_initial_verifier_event(self):
+        receipt = run_cycle("pre-repair binding", inject_defect=True)
+        self.assertTrue(receipt["errors_before_repair"])
+        receipt["errors_before_repair"] = []
+        reseal(receipt)
+        ok, message = verify_receipt(receipt)
+        self.assertFalse(ok)
+        self.assertIn("pre-repair errors", message)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
