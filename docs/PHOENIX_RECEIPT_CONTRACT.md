@@ -21,3 +21,7 @@ The Phoenix Proof Cycle workflow runs the production runner's self-tests, the in
 ## Evidence boundary
 
 The current Scout is a deterministic local fixture. These checks establish integrity and internal consistency of the supplied receipt, not external truth or independently anchored immutability. A SHA-256 chain can be recomputed by an actor who controls the data; independent anchoring must be claimed only after validating a real provider receipt.
+
+## 2026-11-03 verifier hardening
+
+The independent verifier also enforces the deterministic fixture's evidence boundary: all five external-execution/anchor flags must remain `false`. It binds `errors_before_repair` to the initial verifier event in the hash-chained ledger and rejects non-integer or boolean sequence values. Regression tests re-seal modified exports to ensure these checks do not rely only on the outer export hash.
