@@ -315,6 +315,7 @@ See [LICENSE](LICENSE) for full terms.
 - **Multi-AI bridge:** https://github.com/Zygros/multi-ai-convergence-protocol
 - **SSI surface:** https://github.com/Zygros/ultimate-phoenix-protocol-ssi
 - **Plain catalog & outsider audit:** https://github.com/Zygros/sovereign-federation/tree/main/docs
+- **Omni repository:** https://github.com/Zygros/ZYGNUS-OMNI-REPO
 
 ---
 
