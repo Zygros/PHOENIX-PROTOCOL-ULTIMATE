@@ -10,6 +10,7 @@ import sys
 import os
 import json
 import importlib.util
+import uuid
 from datetime import datetime
 
 class MAIAFrameworkOrchestrator:
@@ -17,9 +18,12 @@ class MAIAFrameworkOrchestrator:
     🎯 The orchestrator that demonstrates M.A.I.A.'s cognitive schema in action.
     """
     
-    def __init__(self):
+    def __init__(self, trusted_plugin_dirs=None):
         """
         🧭 ORIENT: Initialize the orchestrator with the cognitive schema.
+
+        Plugin files are executable code. Only explicitly trusted directories
+        may supply plugins; this is an allowlist, not a Python sandbox.
         """
         self.plugin_registry = {}
         self.loaded_plugins = {}
@@ -31,10 +35,36 @@ class MAIAFrameworkOrchestrator:
             "action_history": [],
             "reflection_insights": []
         }
-        
+
+        if trusted_plugin_dirs is None:
+            trusted_plugin_dirs = (
+                "/home/ubuntu/plugins",
+                "./plugins",
+                "./maia_plugins"
+            )
+        elif isinstance(trusted_plugin_dirs, (str, bytes, os.PathLike)):
+            raise TypeError(
+                "trusted_plugin_dirs must be an iterable of directory paths"
+            )
+
+        self.trusted_plugin_dirs = []
+        for directory in trusted_plugin_dirs:
+            if not isinstance(directory, (str, os.PathLike)):
+                raise TypeError("Each trusted plugin directory must be a path")
+            directory = os.fspath(directory)
+            if not isinstance(directory, str) or not directory.strip():
+                raise ValueError("Trusted plugin directory cannot be empty")
+            resolved_directory = os.path.realpath(
+                os.path.abspath(os.path.expanduser(directory))
+            )
+            if os.path.dirname(resolved_directory) == resolved_directory:
+                raise ValueError("Filesystem root cannot be a trusted plugin directory")
+            self.trusted_plugin_dirs.append(resolved_directory)
+
         print("🧠 M.A.I.A. Framework Orchestrator Initialized")
         print("⚜️ Operating under THE ULTIMATE COGNITIVE ACTION SCHEMA")
         print("🔥 !GOLDEN_SOVEREIGN_PROTOCOL Active")
+        print(f"🔒 Trusted plugin directories: {self.trusted_plugin_dirs}")
         
     def perceive(self, input_signal, signal_type="USER_COMMAND"):
         """
@@ -177,27 +207,82 @@ class MAIAFrameworkOrchestrator:
         
         return reflection
     
+    def _resolve_trusted_plugin_path(self, plugin_path):
+        """
+        Resolve a plugin path and enforce containment in a trusted directory.
+
+        realpath resolves symlinks before containment is checked, while
+        commonpath avoids unsafe string-prefix comparisons such as
+        '/trusted-elsewhere' matching '/trusted'.
+        """
+        if not isinstance(plugin_path, (str, os.PathLike)):
+            raise ValueError("Plugin path must be a non-empty filesystem path")
+
+        raw_path = os.fspath(plugin_path)
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            raise ValueError("Plugin path must be a non-empty filesystem path")
+
+        resolved_path = os.path.realpath(
+            os.path.abspath(os.path.expanduser(raw_path))
+        )
+        if os.path.splitext(resolved_path)[1].lower() != ".py":
+            raise ValueError("Only Python .py plugin files are allowed")
+        if not os.path.isfile(resolved_path):
+            raise FileNotFoundError("Plugin file does not exist or is not a regular file")
+
+        for trusted_dir in self.trusted_plugin_dirs:
+            if not os.path.isdir(trusted_dir):
+                continue
+            try:
+                if os.path.commonpath((trusted_dir, resolved_path)) == trusted_dir:
+                    return resolved_path
+            except ValueError:
+                # Different drives or incompatible path roots are not trusted.
+                continue
+
+        raise PermissionError("Plugin path is outside all trusted plugin directories")
+
     def _discover_and_register_plugin(self, plugin_path):
         """
-        Internal method to discover and register a plugin.
+        Discover and register a plugin only after validating its trusted path.
+
+        Trusted plugin code still executes with this process's privileges.
+        Keep trusted directories writable only by authorized operators.
         """
+        module_name = None
         try:
-            # Dynamic loading
-            spec = importlib.util.spec_from_file_location("plugin_module", plugin_path)
+            resolved_path = self._resolve_trusted_plugin_path(plugin_path)
+            module_name = f"maia_plugin_{uuid.uuid4().hex}"
+            spec = importlib.util.spec_from_file_location(module_name, resolved_path)
+            if spec is None or spec.loader is None:
+                raise ImportError("Unable to create a loader for the plugin file")
+
             plugin_module = importlib.util.module_from_spec(spec)
-            sys.modules["plugin_module"] = plugin_module
+            sys.modules[module_name] = plugin_module
             spec.loader.exec_module(plugin_module)
 
-            manifest = plugin_module.get_plugin_manifest()
-            plugin_name = manifest["name"]
+            manifest_fn = getattr(plugin_module, "get_plugin_manifest", None)
+            if not callable(manifest_fn):
+                raise ValueError("Plugin must define callable get_plugin_manifest()")
+
+            manifest = manifest_fn()
+            if not isinstance(manifest, dict):
+                raise TypeError("Plugin manifest must be a dictionary")
+
+            plugin_name = manifest.get("name")
+            if not isinstance(plugin_name, str) or not plugin_name.strip():
+                raise ValueError("Plugin manifest must contain a non-empty string name")
+            plugin_name = plugin_name.strip()
 
             self.plugin_registry[plugin_name] = manifest
             self.loaded_plugins[plugin_name] = plugin_module
-            
+
             print(f"✅ Plugin '{plugin_name}' discovered and registered successfully")
             return {"success": True, "plugin_name": plugin_name, "manifest": manifest}
-            
+
         except Exception as e:
+            if module_name is not None:
+                sys.modules.pop(module_name, None)
             error_msg = f"Failed to discover/register plugin at {plugin_path}: {e}"
             print(f"❌ {error_msg}")
             return {"success": False, "error": error_msg}
