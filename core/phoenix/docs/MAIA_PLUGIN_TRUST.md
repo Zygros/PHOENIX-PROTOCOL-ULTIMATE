@@ -1,0 +1,41 @@
+# M.A.I.A. Plugin Trust Boundary
+
+## Why this exists
+
+M.A.I.A. loads Python plugin files with `importlib`. Importing a Python file executes its top-level code with the privileges of the orchestrator process. A plugin directory is therefore an execution trust boundary, not merely a discovery location.
+
+## Allowed locations
+
+`MAIAFrameworkOrchestrator` accepts an optional `trusted_plugin_dirs` iterable. When omitted, the existing demonstration locations remain available:
+
+- `/home/ubuntu/plugins`
+- `./plugins`
+- `./maia_plugins`
+
+An explicit list replaces those defaults. A single string is rejected so it cannot accidentally be interpreted as a sequence of individual path characters. The filesystem root is not accepted as a trust directory.
+
+## Path validation
+
+Before import, the orchestrator:
+
+1. Expands the user path and resolves it to a canonical absolute path with `realpath`.
+2. Requires a regular `.py` file.
+3. Resolves each configured trust directory and requires it to exist as a directory.
+4. Uses `commonpath` containment rather than string-prefix matching.
+5. Rejects paths outside all configured roots. Symlinks resolving outside a trusted root are rejected.
+
+The plugin manifest must be a dictionary with a non-empty string `name`. A failed import or invalid manifest is not registered and its temporary module entry is removed from `sys.modules`.
+
+## Operational requirements
+
+- Keep trusted plugin directories writable only by authorized operators.
+- Do not place unreviewed downloads or user uploads in a trusted plugin directory.
+- Review plugin source before adding it to an allowlisted directory.
+- The allowlist does **not** sandbox plugin code. A trusted plugin can still read files, access the network, spawn processes, or modify data allowed to the orchestrator process.
+- For untrusted or multi-tenant plugins, use a separate process or container with reduced OS permissions and explicit IPC instead of in-process import.
+
+## Verification
+
+`tests/test_maia_plugin_security.py` covers empty paths, parent traversal, symlink escape, sibling-prefix confusion, non-Python files, invalid manifests, and successful registration/invocation of a trusted fixture.
+
+The focused GitHub Actions workflow is `MAIA Plugin Trust Tests`. The broader Phoenix Audit also discovers the `tests/` directory.
