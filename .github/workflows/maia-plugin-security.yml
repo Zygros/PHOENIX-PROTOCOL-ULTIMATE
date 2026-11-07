@@ -5,11 +5,15 @@ on:
     branches: ["**"]
     paths:
       - "core/phoenix/scripts/maia_framework_orchestrator.py"
+      - "core/phoenix/docs/MAIA_PLUGIN_TRUST.md"
+      - "core/phoenix/README.md"
       - "tests/test_maia_plugin_security.py"
       - ".github/workflows/maia-plugin-security.yml"
   pull_request:
     paths:
       - "core/phoenix/scripts/maia_framework_orchestrator.py"
+      - "core/phoenix/docs/MAIA_PLUGIN_TRUST.md"
+      - "core/phoenix/README.md"
       - "tests/test_maia_plugin_security.py"
       - ".github/workflows/maia-plugin-security.yml"
 
@@ -29,4 +33,61 @@ jobs:
       - name: Compile orchestrator and regression tests
         run: python -m py_compile core/phoenix/scripts/maia_framework_orchestrator.py tests/test_maia_plugin_security.py
       - name: Run plugin trust-boundary tests
-        run: python -m unittest discover -s tests -p 'test_maia_plugin_security.py' -v
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_maia_plugin_security.py' -v 2>&1 | tee plugin-trust-test-results.txt
+      - name: Build reproducible evidence receipt
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import re
+          from pathlib import Path
+
+          result_text = Path("plugin-trust-test-results.txt").read_text(encoding="utf-8")
+          match = re.search(r"Ran (\\d+) tests?", result_text)
+          if not match or "OK" not in result_text:
+              raise SystemExit("Expected successful unittest summary was not found")
+
+          inputs = [
+              "core/phoenix/scripts/maia_framework_orchestrator.py",
+              "tests/test_maia_plugin_security.py",
+              ".github/workflows/maia-plugin-security.yml",
+              "core/phoenix/docs/MAIA_PLUGIN_TRUST.md",
+              "core/phoenix/README.md",
+          ]
+          hashes = {}
+          for name in inputs + ["plugin-trust-test-results.txt"]:
+              hashes[name] = hashlib.sha256(Path(name).read_bytes()).hexdigest()
+
+          receipt = {
+              "schema": "conzetian.maia-plugin-trust.evidence.v1",
+              "workflow": os.environ.get("GITHUB_WORKFLOW"),
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "commit": os.environ["GITHUB_SHA"],
+              "python": platform.python_version(),
+              "result": "passed",
+              "tests_passed": int(match.group(1)),
+              "files_sha256": hashes,
+          }
+          Path("plugin-trust-evidence.json").write_text(
+              json.dumps(receipt, sort_keys=True, indent=2) + "\\n",
+              encoding="utf-8",
+          )
+          PY
+      - name: Hash the evidence bundle
+        run: sha256sum plugin-trust-test-results.txt plugin-trust-evidence.json > plugin-trust-evidence.sha256
+      - name: Upload reproducible evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: maia-plugin-trust-evidence
+          path: |
+            plugin-trust-test-results.txt
+            plugin-trust-evidence.json
+            plugin-trust-evidence.sha256
+          if-no-files-found: error
+          retention-days: 90
