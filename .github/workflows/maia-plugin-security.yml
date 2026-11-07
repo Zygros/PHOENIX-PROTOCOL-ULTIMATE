@@ -38,6 +38,9 @@ jobs:
           set -euo pipefail
           python -m unittest discover -s tests -p 'test_maia_plugin_security.py' -v 2>&1 | tee plugin-trust-test-results.txt
       - name: Build reproducible evidence receipt
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
         run: |
           python - <<'PY'
           import hashlib
@@ -68,7 +71,10 @@ jobs:
               "workflow": os.environ.get("GITHUB_WORKFLOW"),
               "run_id": int(os.environ["GITHUB_RUN_ID"]),
               "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
-              "commit": os.environ["GITHUB_SHA"],
+              "tested_commit": os.environ["GITHUB_SHA"],
+              "source_head_commit": os.environ.get("SOURCE_HEAD_SHA") or os.environ["GITHUB_SHA"],
+              "base_commit": os.environ.get("BASE_SHA") or None,
+              "event": os.environ.get("GITHUB_EVENT_NAME"),
               "python": platform.python_version(),
               "result": "passed",
               "tests_passed": int(match.group(1)),
