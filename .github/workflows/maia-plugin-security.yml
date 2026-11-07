@@ -1,0 +1,32 @@
+name: MAIA Plugin Trust Tests
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "core/phoenix/scripts/maia_framework_orchestrator.py"
+      - "tests/test_maia_plugin_security.py"
+      - ".github/workflows/maia-plugin-security.yml"
+  pull_request:
+    paths:
+      - "core/phoenix/scripts/maia_framework_orchestrator.py"
+      - "tests/test_maia_plugin_security.py"
+      - ".github/workflows/maia-plugin-security.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  plugin-trust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile orchestrator and regression tests
+        run: python -m py_compile core/phoenix/scripts/maia_framework_orchestrator.py tests/test_maia_plugin_security.py
+      - name: Run plugin trust-boundary tests
+        run: python -m unittest discover -s tests -p 'test_maia_plugin_security.py' -v
