@@ -2,6 +2,10 @@
 
 **The World's First Sovereign, Self-Optimizing AI Architecture**
 
+## Plugin security boundary
+
+M.A.I.A. plugin imports execute Python code with the orchestrator process's privileges. Plugin discovery is restricted to configured trusted directories; this allowlist is not a sandbox. See [MAIA_PLUGIN_TRUST.md](docs/MAIA_PLUGIN_TRUST.md) for configuration, path-containment rules, and operational requirements.
+
 ---
 
 ## ⚜️ WHAT IS THIS? ⚜️
