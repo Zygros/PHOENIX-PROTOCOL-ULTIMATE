@@ -48,7 +48,7 @@ jobs:
           from pathlib import Path
 
           result_text = Path("plugin-trust-test-results.txt").read_text(encoding="utf-8")
-          match = re.search(r"Ran (\\d+) tests?", result_text)
+          match = re.search(r"Ran ([0-9]+) tests?", result_text)
           if not match or "OK" not in result_text:
               raise SystemExit("Expected successful unittest summary was not found")
 
@@ -75,7 +75,7 @@ jobs:
               "files_sha256": hashes,
           }
           Path("plugin-trust-evidence.json").write_text(
-              json.dumps(receipt, sort_keys=True, indent=2) + "\\n",
+              json.dumps(receipt, sort_keys=True, indent=2) + chr(10),
               encoding="utf-8",
           )
           PY
