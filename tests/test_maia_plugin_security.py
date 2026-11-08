@@ -130,8 +130,8 @@ class PluginTrustBoundaryTests(unittest.TestCase):
     def test_group_or_world_writable_trusted_directory_is_rejected(self):
         plugin = self.trusted / "unsafe_root.py"
         plugin.write_text(
-            "def get_plugin_manifest():\\n"
-            "    return {'name': 'unsafe-root'}\\n",
+            "def get_plugin_manifest():\n"
+            "    return {'name': 'unsafe-root'}\n",
             encoding="utf-8",
         )
         self.trusted.chmod(0o777)
@@ -145,8 +145,8 @@ class PluginTrustBoundaryTests(unittest.TestCase):
         nested.chmod(0o777)
         plugin = nested / "unsafe_nested.py"
         plugin.write_text(
-            "def get_plugin_manifest():\\n"
-            "    return {'name': 'unsafe-nested'}\\n",
+            "def get_plugin_manifest():\n"
+            "    return {'name': 'unsafe-nested'}\n",
             encoding="utf-8",
         )
         result = self.orchestrator._discover_and_register_plugin(plugin)
@@ -156,8 +156,8 @@ class PluginTrustBoundaryTests(unittest.TestCase):
     def test_group_or_world_writable_plugin_file_is_rejected(self):
         plugin = self.trusted / "unsafe_file.py"
         plugin.write_text(
-            "def get_plugin_manifest():\\n"
-            "    return {'name': 'unsafe-file'}\\n",
+            "def get_plugin_manifest():\n"
+            "    return {'name': 'unsafe-file'}\n",
             encoding="utf-8",
         )
         plugin.chmod(0o666)
@@ -168,16 +168,16 @@ class PluginTrustBoundaryTests(unittest.TestCase):
     def test_path_replacement_after_open_is_rejected_without_execution(self):
         plugin = self.trusted / "replace_me.py"
         plugin.write_text(
-            "def get_plugin_manifest():\\n"
-            "    return {'name': 'original-plugin'}\\n",
+            "def get_plugin_manifest():\n"
+            "    return {'name': 'original-plugin'}\n",
             encoding="utf-8",
         )
         replacement = self.outside / "replacement.py"
         replacement.write_text(
-            "from pathlib import Path\\n"
-            f"Path({str(self.marker)!r}).write_text('executed')\\n"
-            "def get_plugin_manifest():\\n"
-            "    return {'name': 'replacement-plugin'}\\n",
+            "from pathlib import Path\n"
+            f"Path({str(self.marker)!r}).write_text('executed')\n"
+            "def get_plugin_manifest():\n"
+            "    return {'name': 'replacement-plugin'}\n",
             encoding="utf-8",
         )
 
@@ -203,17 +203,17 @@ class PluginTrustBoundaryTests(unittest.TestCase):
         first = self.trusted / "first.py"
         second = self.trusted / "second.py"
         first.write_text(
-            "def get_plugin_manifest():\\n"
-            "    return {'name': 'duplicate-plugin'}\\n"
-            "def ping():\\n"
-            "    return 'first'\\n",
+            "def get_plugin_manifest():\n"
+            "    return {'name': 'duplicate-plugin'}\n"
+            "def ping():\n"
+            "    return 'first'\n",
             encoding="utf-8",
         )
         second.write_text(
-            "def get_plugin_manifest():\\n"
-            "    return {'name': 'duplicate-plugin'}\\n"
-            "def ping():\\n"
-            "    return 'second'\\n",
+            "def get_plugin_manifest():\n"
+            "    return {'name': 'duplicate-plugin'}\n"
+            "def ping():\n"
+            "    return 'second'\n",
             encoding="utf-8",
         )
 
