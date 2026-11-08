@@ -25,7 +25,8 @@ Before import, the orchestrator:
 5. Rejects paths outside all configured roots. Symlinks resolving outside a trusted root are rejected.
 6. Requires the trusted root and every descendant directory, plus the plugin file, to be non-writable by group/other.
 7. Opens the validated file with no-follow semantics where supported, checks the opened descriptor against the current path entry, and compiles the exact bytes read from that descriptor. A pathname swap between validation and import is rejected rather than reopened by an import loader.
-8. Rejects duplicate plugin names rather than silently replacing an already registered plugin.
+8. Preserves the module's `__file__` location metadata for plugins that resolve resources relative to their source file.
+9. Rejects duplicate plugin names rather than silently replacing an already registered plugin.
 
 The plugin manifest must be a dictionary with a non-empty string `name`. A failed import or invalid manifest is not registered and its temporary module entry is removed from `sys.modules`.
 
