@@ -361,6 +361,7 @@ class MAIAFrameworkOrchestrator:
             )
             if spec is None:
                 raise ImportError("Unable to create a module specification")
+            spec.has_location = True
 
             plugin_module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = plugin_module
