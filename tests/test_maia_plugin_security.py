@@ -100,7 +100,9 @@ class PluginTrustBoundaryTests(unittest.TestCase):
             "def get_plugin_manifest():\n"
             "    return {'name': 'trusted-plugin'}\n"
             "def ping():\n"
-            "    return 'pong'\n",
+            "    return 'pong'\n"
+            "def source_path():\n"
+            "    return __file__\n",
             encoding="utf-8",
         )
         result = self.orchestrator._discover_and_register_plugin(plugin)
@@ -110,6 +112,10 @@ class PluginTrustBoundaryTests(unittest.TestCase):
             "trusted-plugin", "ping"
         )
         self.assertEqual(invoked, {"success": True, "result": "pong"})
+        source_path = self.orchestrator._invoke_plugin_capability(
+            "trusted-plugin", "source_path"
+        )
+        self.assertEqual(source_path, {"success": True, "result": str(plugin)})
 
     def test_invalid_manifest_does_not_register_module(self):
         plugin = self.trusted / "invalid_manifest.py"
