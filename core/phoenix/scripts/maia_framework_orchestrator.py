@@ -10,6 +10,7 @@ import sys
 import os
 import json
 import importlib.util
+import stat
 import uuid
 from datetime import datetime
 
@@ -207,13 +208,49 @@ class MAIAFrameworkOrchestrator:
         
         return reflection
     
+    def _trusted_plugin_location_is_private(self, trusted_dir, resolved_path):
+        """
+        Require the trusted root and every descendant directory to be
+        non-writable by group/other, and the plugin file to be regular and
+        non-writable by group/other.
+        """
+        writable_mask = stat.S_IWGRP | stat.S_IWOTH
+        try:
+            file_info = os.stat(resolved_path, follow_symlinks=False)
+        except OSError:
+            return False
+        if not stat.S_ISREG(file_info.st_mode) or file_info.st_mode & writable_mask:
+            return False
+
+        current = os.path.dirname(resolved_path)
+        while True:
+            try:
+                if os.path.commonpath((trusted_dir, current)) != trusted_dir:
+                    return False
+                directory_info = os.stat(current, follow_symlinks=False)
+            except (OSError, ValueError):
+                return False
+
+            if not stat.S_ISDIR(directory_info.st_mode):
+                return False
+            if directory_info.st_mode & writable_mask:
+                return False
+            if current == trusted_dir:
+                return True
+
+            parent = os.path.dirname(current)
+            if parent == current:
+                return False
+            current = parent
+
     def _resolve_trusted_plugin_path(self, plugin_path):
         """
         Resolve a plugin path and enforce containment in a trusted directory.
 
         realpath resolves symlinks before containment is checked, while
         commonpath avoids unsafe string-prefix comparisons such as
-        '/trusted-elsewhere' matching '/trusted'.
+        '/trusted-elsewhere' matching '/trusted'. The trusted root and each
+        descendant directory must not be group/world writable.
         """
         if not isinstance(plugin_path, (str, os.PathLike)):
             raise ValueError("Plugin path must be a non-empty filesystem path")
@@ -227,20 +264,85 @@ class MAIAFrameworkOrchestrator:
         )
         if os.path.splitext(resolved_path)[1].lower() != ".py":
             raise ValueError("Only Python .py plugin files are allowed")
-        if not os.path.isfile(resolved_path):
-            raise FileNotFoundError("Plugin file does not exist or is not a regular file")
 
+        matching_root = False
         for trusted_dir in self.trusted_plugin_dirs:
-            if not os.path.isdir(trusted_dir):
-                continue
             try:
-                if os.path.commonpath((trusted_dir, resolved_path)) == trusted_dir:
-                    return resolved_path
+                if os.path.commonpath((trusted_dir, resolved_path)) != trusted_dir:
+                    continue
             except ValueError:
-                # Different drives or incompatible path roots are not trusted.
                 continue
 
-        raise PermissionError("Plugin path is outside all trusted plugin directories")
+            matching_root = True
+            if self._trusted_plugin_location_is_private(trusted_dir, resolved_path):
+                return resolved_path
+
+        if matching_root:
+            raise PermissionError(
+                "Plugin file or trusted path is writable by group/other or is not regular"
+            )
+        raise PermissionError("Plugin path is outside all configured trusted plugin directories")
+
+    def _read_trusted_plugin_source(self, resolved_path):
+        """
+        Read the exact file object that was validated, rather than asking an
+        import loader to reopen the pathname after validation.
+
+        The descriptor identity is compared with the current path entry to
+        detect replacement between path validation and open. The file is
+        compiled from the bytes read through that descriptor.
+        """
+        descriptor = None
+        writable_mask = stat.S_IWGRP | stat.S_IWOTH
+        try:
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(resolved_path, flags)
+
+            opened_info = os.fstat(descriptor)
+            if not stat.S_ISREG(opened_info.st_mode):
+                raise PermissionError("Opened plugin is not a regular file")
+            if opened_info.st_mode & writable_mask:
+                raise PermissionError("Plugin file is writable by group/other")
+
+            if self._resolve_trusted_plugin_path(resolved_path) != resolved_path:
+                raise PermissionError("Plugin path changed during validation")
+
+            path_info = os.stat(resolved_path, follow_symlinks=False)
+            if not stat.S_ISREG(path_info.st_mode):
+                raise PermissionError("Plugin path is no longer a regular file")
+            if (path_info.st_dev, path_info.st_ino) != (
+                opened_info.st_dev,
+                opened_info.st_ino,
+            ):
+                raise PermissionError("Plugin file changed between validation and open")
+
+            with os.fdopen(descriptor, "rb") as plugin_file:
+                descriptor = None
+                source = plugin_file.read()
+                after_read = os.fstat(plugin_file.fileno())
+
+            before_signature = (
+                opened_info.st_dev,
+                opened_info.st_ino,
+                opened_info.st_size,
+                opened_info.st_mtime_ns,
+                opened_info.st_ctime_ns,
+            )
+            after_signature = (
+                after_read.st_dev,
+                after_read.st_ino,
+                after_read.st_size,
+                after_read.st_mtime_ns,
+                after_read.st_ctime_ns,
+            )
+            if before_signature != after_signature:
+                raise PermissionError("Plugin file changed while being read")
+
+            return importlib.util.decode_source(source)
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
 
     def _discover_and_register_plugin(self, plugin_path):
         """
@@ -253,13 +355,17 @@ class MAIAFrameworkOrchestrator:
         try:
             resolved_path = self._resolve_trusted_plugin_path(plugin_path)
             module_name = f"maia_plugin_{uuid.uuid4().hex}"
-            spec = importlib.util.spec_from_file_location(module_name, resolved_path)
-            if spec is None or spec.loader is None:
-                raise ImportError("Unable to create a loader for the plugin file")
+            source = self._read_trusted_plugin_source(resolved_path)
+            spec = importlib.util.spec_from_loader(
+                module_name, loader=None, origin=resolved_path
+            )
+            if spec is None:
+                raise ImportError("Unable to create a module specification")
 
             plugin_module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = plugin_module
-            spec.loader.exec_module(plugin_module)
+            code = compile(source, resolved_path, "exec")
+            exec(code, plugin_module.__dict__)
 
             manifest_fn = getattr(plugin_module, "get_plugin_manifest", None)
             if not callable(manifest_fn):
@@ -273,6 +379,8 @@ class MAIAFrameworkOrchestrator:
             if not isinstance(plugin_name, str) or not plugin_name.strip():
                 raise ValueError("Plugin manifest must contain a non-empty string name")
             plugin_name = plugin_name.strip()
+            if plugin_name in self.plugin_registry or plugin_name in self.loaded_plugins:
+                raise ValueError(f"Plugin name is already registered: {plugin_name}")
 
             self.plugin_registry[plugin_name] = manifest
             self.loaded_plugins[plugin_name] = plugin_module
