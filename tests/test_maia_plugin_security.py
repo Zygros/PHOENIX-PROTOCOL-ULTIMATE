@@ -1,9 +1,11 @@
 """Security regression tests for the M.A.I.A. plugin trust boundary."""
 
 import importlib.util
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SOURCE = (
     Path(__file__).resolve().parents[1]
@@ -124,6 +126,107 @@ class PluginTrustBoundaryTests(unittest.TestCase):
     def test_single_string_is_not_accepted_as_directory_list(self):
         with self.assertRaises(TypeError):
             MAIAFrameworkOrchestrator(trusted_plugin_dirs=str(self.trusted))
+
+    def test_group_or_world_writable_trusted_directory_is_rejected(self):
+        plugin = self.trusted / "unsafe_root.py"
+        plugin.write_text(
+            "def get_plugin_manifest():\\n"
+            "    return {'name': 'unsafe-root'}\\n",
+            encoding="utf-8",
+        )
+        self.trusted.chmod(0o777)
+        result = self.orchestrator._discover_and_register_plugin(plugin)
+        self.assertFalse(result["success"])
+        self.assertEqual(self.orchestrator.plugin_registry, {})
+
+    def test_group_or_world_writable_nested_directory_is_rejected(self):
+        nested = self.trusted / "nested"
+        nested.mkdir()
+        nested.chmod(0o777)
+        plugin = nested / "unsafe_nested.py"
+        plugin.write_text(
+            "def get_plugin_manifest():\\n"
+            "    return {'name': 'unsafe-nested'}\\n",
+            encoding="utf-8",
+        )
+        result = self.orchestrator._discover_and_register_plugin(plugin)
+        self.assertFalse(result["success"])
+        self.assertEqual(self.orchestrator.plugin_registry, {})
+
+    def test_group_or_world_writable_plugin_file_is_rejected(self):
+        plugin = self.trusted / "unsafe_file.py"
+        plugin.write_text(
+            "def get_plugin_manifest():\\n"
+            "    return {'name': 'unsafe-file'}\\n",
+            encoding="utf-8",
+        )
+        plugin.chmod(0o666)
+        result = self.orchestrator._discover_and_register_plugin(plugin)
+        self.assertFalse(result["success"])
+        self.assertEqual(self.orchestrator.plugin_registry, {})
+
+    def test_path_replacement_after_open_is_rejected_without_execution(self):
+        plugin = self.trusted / "replace_me.py"
+        plugin.write_text(
+            "def get_plugin_manifest():\\n"
+            "    return {'name': 'original-plugin'}\\n",
+            encoding="utf-8",
+        )
+        replacement = self.outside / "replacement.py"
+        replacement.write_text(
+            "from pathlib import Path\\n"
+            f"Path({str(self.marker)!r}).write_text('executed')\\n"
+            "def get_plugin_manifest():\\n"
+            "    return {'name': 'replacement-plugin'}\\n",
+            encoding="utf-8",
+        )
+
+        real_open = os.open
+        replaced = {"value": False}
+
+        def racing_open(path, flags, *args, **kwargs):
+            descriptor = real_open(path, flags, *args, **kwargs)
+            if os.fspath(path) == str(plugin) and not replaced["value"]:
+                os.replace(replacement, plugin)
+                replaced["value"] = True
+            return descriptor
+
+        with mock.patch.object(MODULE.os, "open", side_effect=racing_open):
+            result = self.orchestrator._discover_and_register_plugin(plugin)
+
+        self.assertTrue(replaced["value"])
+        self.assertFalse(result["success"])
+        self.assertFalse(self.marker.exists())
+        self.assertEqual(self.orchestrator.plugin_registry, {})
+
+    def test_duplicate_plugin_name_does_not_replace_existing_plugin(self):
+        first = self.trusted / "first.py"
+        second = self.trusted / "second.py"
+        first.write_text(
+            "def get_plugin_manifest():\\n"
+            "    return {'name': 'duplicate-plugin'}\\n"
+            "def ping():\\n"
+            "    return 'first'\\n",
+            encoding="utf-8",
+        )
+        second.write_text(
+            "def get_plugin_manifest():\\n"
+            "    return {'name': 'duplicate-plugin'}\\n"
+            "def ping():\\n"
+            "    return 'second'\\n",
+            encoding="utf-8",
+        )
+
+        first_result = self.orchestrator._discover_and_register_plugin(first)
+        second_result = self.orchestrator._discover_and_register_plugin(second)
+
+        self.assertTrue(first_result["success"])
+        self.assertFalse(second_result["success"])
+        invoked = self.orchestrator._invoke_plugin_capability(
+            "duplicate-plugin", "ping"
+        )
+        self.assertEqual(invoked, {"success": True, "result": "first"})
+        self.assertEqual(list(self.orchestrator.loaded_plugins), ["duplicate-plugin"])
 
 
 if __name__ == "__main__":
