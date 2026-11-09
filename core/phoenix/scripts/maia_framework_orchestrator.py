@@ -208,6 +208,44 @@ class MAIAFrameworkOrchestrator:
         
         return reflection
     
+    def _trusted_plugin_root_chain_is_private(self, trusted_dir):
+        """Reject replaceable trust roots and unsafe ancestor directories.
+
+        A trusted root below a group/other-writable non-sticky parent can be
+        renamed and replaced by another user even when the root and plugin
+        themselves have restrictive mode bits. Sticky writable parents such
+        as /tmp are allowed because they prevent other users from renaming a
+        child they do not own. On POSIX, the trusted root must be owned by the
+        effective service user or root.
+        """
+        writable_mask = stat.S_IWGRP | stat.S_IWOTH
+        sticky_mask = getattr(stat, "S_ISVTX", 0)
+        current = trusted_dir
+        is_trusted_root = True
+        effective_uid = getattr(os, "geteuid", None)
+        effective_uid = effective_uid() if callable(effective_uid) else None
+
+        while True:
+            try:
+                info = os.stat(current, follow_symlinks=False)
+            except OSError:
+                return False
+
+            if not stat.S_ISDIR(info.st_mode):
+                return False
+            if (is_trusted_root and effective_uid is not None
+                    and info.st_uid not in (0, effective_uid)):
+                return False
+            if (not is_trusted_root and info.st_mode & writable_mask
+                    and not info.st_mode & sticky_mask):
+                return False
+
+            parent = os.path.dirname(current)
+            if parent == current:
+                return True
+            current = parent
+            is_trusted_root = False
+
     def _trusted_plugin_location_is_private(self, trusted_dir, resolved_path):
         """
         Require the trusted root and every descendant directory to be
@@ -236,7 +274,7 @@ class MAIAFrameworkOrchestrator:
             if directory_info.st_mode & writable_mask:
                 return False
             if current == trusted_dir:
-                return True
+                return self._trusted_plugin_root_chain_is_private(trusted_dir)
 
             parent = os.path.dirname(current)
             if parent == current:
