@@ -243,8 +243,8 @@ class PluginTrustBoundaryTests(unittest.TestCase):
         trusted_root.mkdir(mode=0o755)
         original = trusted_root / "original.py"
         original.write_text(
-            "def get_plugin_manifest():\\n"
-            "    return {'name': 'original'}\\n",
+            "def get_plugin_manifest():\n"
+            "    return {'name': 'original'}\n",
             encoding="utf-8",
         )
         original.chmod(0o644)
@@ -254,10 +254,10 @@ class PluginTrustBoundaryTests(unittest.TestCase):
         trusted_root.mkdir(mode=0o755)
         replacement = trusted_root / "replacement.py"
         replacement.write_text(
-            "from pathlib import Path\\n"
-            f"Path({str(self.marker)!r}).write_text('executed')\\n"
-            "def get_plugin_manifest():\\n"
-            "    return {'name': 'replacement'}\\n",
+            "from pathlib import Path\n"
+            f"Path({str(self.marker)!r}).write_text('executed')\n"
+            "def get_plugin_manifest():\n"
+            "    return {'name': 'replacement'}\n",
             encoding="utf-8",
         )
         replacement.chmod(0o644)
