@@ -23,7 +23,7 @@ Before import, the orchestrator:
 3. Resolves each configured trust directory and requires it to exist as a directory.
 4. Uses `commonpath` containment rather than string-prefix matching.
 5. Rejects paths outside all configured roots. Symlinks resolving outside a trusted root are rejected.
-6. Requires the trusted root and every descendant directory, plus the plugin file, to be non-writable by group/other.
+6. Requires the trusted root and every descendant directory, plus the plugin file, to be non-writable by group/other. The trusted root must be owned by the service user or root; ancestor directories are checked up to the filesystem root, rejecting group/other-writable ancestors unless the sticky bit prevents other users from replacing children.
 7. Opens the validated file with no-follow semantics where supported, checks the opened descriptor against the current path entry, and compiles the exact bytes read from that descriptor. A pathname swap between validation and import is rejected rather than reopened by an import loader.
 8. Preserves the module's `__file__` location metadata for plugins that resolve resources relative to their source file.
 9. Rejects duplicate plugin names rather than silently replacing an already registered plugin.
