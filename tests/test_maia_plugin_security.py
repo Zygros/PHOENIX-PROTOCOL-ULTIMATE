@@ -235,5 +235,37 @@ class PluginTrustBoundaryTests(unittest.TestCase):
         self.assertEqual(list(self.orchestrator.loaded_plugins), ["duplicate-plugin"])
 
 
+    def test_group_world_writable_nonsticky_parent_cannot_replace_trusted_root(self):
+        shared_parent = self.root / "shared-parent"
+        shared_parent.mkdir()
+        shared_parent.chmod(0o777)
+        trusted_root = shared_parent / "trusted"
+        trusted_root.mkdir(mode=0o755)
+        original = trusted_root / "original.py"
+        original.write_text(
+            "def get_plugin_manifest():\\n"
+            "    return {'name': 'original'}\\n",
+            encoding="utf-8",
+        )
+        original.chmod(0o644)
+        guarded = MAIAFrameworkOrchestrator(trusted_plugin_dirs=[trusted_root])
+
+        os.replace(trusted_root, shared_parent / "trusted.original")
+        trusted_root.mkdir(mode=0o755)
+        replacement = trusted_root / "replacement.py"
+        replacement.write_text(
+            "from pathlib import Path\\n"
+            f"Path({str(self.marker)!r}).write_text('executed')\\n"
+            "def get_plugin_manifest():\\n"
+            "    return {'name': 'replacement'}\\n",
+            encoding="utf-8",
+        )
+        replacement.chmod(0o644)
+
+        result = guarded._discover_and_register_plugin(replacement)
+        self.assertFalse(result["success"])
+        self.assertFalse(self.marker.exists())
+        self.assertEqual(guarded.plugin_registry, {})
+
 if __name__ == "__main__":
     unittest.main()
