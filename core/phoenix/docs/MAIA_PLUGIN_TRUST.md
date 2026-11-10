@@ -44,3 +44,8 @@ The plugin manifest must be a dictionary with a non-empty string `name`. A faile
 `tests/test_maia_plugin_security.py` covers empty paths, parent traversal, symlink escape, sibling-prefix confusion, non-Python files, invalid manifests, group/world-writable roots/files, pathname replacement after open, duplicate plugin names, and successful registration/invocation of a trusted fixture.
 
 The focused GitHub Actions workflow is `MAIA Plugin Trust Tests`. The broader Phoenix Audit also discovers the `tests/` directory.
+
+
+## Filesystem ownership requirement
+
+On POSIX systems, every plugin file, descendant directory, configured trusted root, and ancestor directory must be owned by root or the effective service UID. Group/world-writable ancestors are rejected unless the directory has the sticky bit and is owned by one of those trusted principals. The loader repeats the owner check with fstat() on the opened plugin descriptor, compares descriptor ownership with the path entry, and checks ownership again after reading. This supplements path containment and descriptor identity checks; it does not sandbox trusted plugin code, which still executes with the orchestrator process privileges.
