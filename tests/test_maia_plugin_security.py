@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 SOURCE = (
@@ -266,6 +267,86 @@ class PluginTrustBoundaryTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertFalse(self.marker.exists())
         self.assertEqual(guarded.plugin_registry, {})
+
+class PluginOwnerBoundaryTests(unittest.TestCase):
+    def test_rejects_untrusted_file_descendant_ancestor_and_descriptor_owners(self):
+        if not callable(getattr(os, "geteuid", None)):
+            self.skipTest("POSIX ownership checks are unavailable")
+        untrusted_uid = os.geteuid() + 100000
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            trusted = root / "plugins"
+            trusted.mkdir()
+            orchestrator = MAIAFrameworkOrchestrator(trusted_plugin_dirs=[trusted])
+
+            def write_plugin(path, name):
+                path.write_text(
+                    "def get_plugin_manifest():\\n"
+                    f"    return {{'name': {name!r}}}\\n",
+                    encoding="utf-8",
+                )
+
+            def stat_with_uid(target_path):
+                real_stat = os.stat
+                target = os.path.abspath(os.fspath(target_path))
+
+                def fake_stat(path, *args, **kwargs):
+                    info = real_stat(path, *args, **kwargs)
+                    if os.path.abspath(os.fspath(path)) == target:
+                        values = {
+                            field: getattr(info, field)
+                            for field in (
+                                "st_mode", "st_uid", "st_dev", "st_ino",
+                                "st_size", "st_mtime_ns", "st_ctime_ns",
+                            )
+                        }
+                        values["st_uid"] = untrusted_uid
+                        return SimpleNamespace(**values)
+                    return info
+
+                return fake_stat
+
+            file_plugin = trusted / "untrusted-owner.py"
+            write_plugin(file_plugin, "untrusted-file")
+            with mock.patch.object(MODULE.os, "stat", side_effect=stat_with_uid(file_plugin)):
+                result = orchestrator._discover_and_register_plugin(file_plugin)
+            self.assertFalse(result["success"])
+
+            nested = trusted / "nested"
+            nested.mkdir()
+            nested_plugin = nested / "nested-owner.py"
+            write_plugin(nested_plugin, "untrusted-directory")
+            with mock.patch.object(MODULE.os, "stat", side_effect=stat_with_uid(nested)):
+                result = orchestrator._discover_and_register_plugin(nested_plugin)
+            self.assertFalse(result["success"])
+
+            ancestor_plugin = trusted / "ancestor-owner.py"
+            write_plugin(ancestor_plugin, "untrusted-ancestor")
+            with mock.patch.object(MODULE.os, "stat", side_effect=stat_with_uid(root)):
+                result = orchestrator._discover_and_register_plugin(ancestor_plugin)
+            self.assertFalse(result["success"])
+
+            descriptor_plugin = trusted / "descriptor-owner.py"
+            write_plugin(descriptor_plugin, "untrusted-descriptor")
+            real_fstat = os.fstat
+
+            def fake_fstat(fd):
+                info = real_fstat(fd)
+                values = {
+                    field: getattr(info, field)
+                    for field in (
+                        "st_mode", "st_uid", "st_dev", "st_ino",
+                        "st_size", "st_mtime_ns", "st_ctime_ns",
+                    )
+                }
+                values["st_uid"] = untrusted_uid
+                return SimpleNamespace(**values)
+
+            with mock.patch.object(MODULE.os, "fstat", side_effect=fake_fstat):
+                result = orchestrator._discover_and_register_plugin(descriptor_plugin)
+            self.assertFalse(result["success"])
+
 
 if __name__ == "__main__":
     unittest.main()
