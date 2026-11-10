@@ -208,22 +208,18 @@ class MAIAFrameworkOrchestrator:
         
         return reflection
     
-    def _trusted_plugin_root_chain_is_private(self, trusted_dir):
-        """Reject replaceable trust roots and unsafe ancestor directories.
+    def _trusted_plugin_owner_is_allowed(self, info):
+        """Allow only root or the effective service UID to own trust-path objects."""
+        effective_uid = getattr(os, "geteuid", None)
+        if not callable(effective_uid):
+            return True
+        return getattr(info, "st_uid", None) in (0, effective_uid())
 
-        A trusted root below a group/other-writable non-sticky parent can be
-        renamed and replaced by another user even when the root and plugin
-        themselves have restrictive mode bits. Sticky writable parents such
-        as /tmp are allowed because they prevent other users from renaming a
-        child they do not own. On POSIX, the trusted root must be owned by the
-        effective service user or root.
-        """
+    def _trusted_plugin_root_chain_is_private(self, trusted_dir):
+        """Reject untrusted owners and replaceable ancestors of a trusted root."""
         writable_mask = stat.S_IWGRP | stat.S_IWOTH
         sticky_mask = getattr(stat, "S_ISVTX", 0)
         current = trusted_dir
-        is_trusted_root = True
-        effective_uid = getattr(os, "geteuid", None)
-        effective_uid = effective_uid() if callable(effective_uid) else None
 
         while True:
             try:
@@ -233,18 +229,15 @@ class MAIAFrameworkOrchestrator:
 
             if not stat.S_ISDIR(info.st_mode):
                 return False
-            if (is_trusted_root and effective_uid is not None
-                    and info.st_uid not in (0, effective_uid)):
+            if not self._trusted_plugin_owner_is_allowed(info):
                 return False
-            if (not is_trusted_root and info.st_mode & writable_mask
-                    and not info.st_mode & sticky_mask):
+            if info.st_mode & writable_mask and not info.st_mode & sticky_mask:
                 return False
 
             parent = os.path.dirname(current)
             if parent == current:
                 return True
             current = parent
-            is_trusted_root = False
 
     def _trusted_plugin_location_is_private(self, trusted_dir, resolved_path):
         """
@@ -257,7 +250,11 @@ class MAIAFrameworkOrchestrator:
             file_info = os.stat(resolved_path, follow_symlinks=False)
         except OSError:
             return False
-        if not stat.S_ISREG(file_info.st_mode) or file_info.st_mode & writable_mask:
+        if (
+            not stat.S_ISREG(file_info.st_mode)
+            or file_info.st_mode & writable_mask
+            or not self._trusted_plugin_owner_is_allowed(file_info)
+        ):
             return False
 
         current = os.path.dirname(resolved_path)
@@ -269,9 +266,11 @@ class MAIAFrameworkOrchestrator:
             except (OSError, ValueError):
                 return False
 
-            if not stat.S_ISDIR(directory_info.st_mode):
-                return False
-            if directory_info.st_mode & writable_mask:
+            if (
+                not stat.S_ISDIR(directory_info.st_mode)
+                or directory_info.st_mode & writable_mask
+                or not self._trusted_plugin_owner_is_allowed(directory_info)
+            ):
                 return False
             if current == trusted_dir:
                 return self._trusted_plugin_root_chain_is_private(trusted_dir)
@@ -340,6 +339,8 @@ class MAIAFrameworkOrchestrator:
             opened_info = os.fstat(descriptor)
             if not stat.S_ISREG(opened_info.st_mode):
                 raise PermissionError("Opened plugin is not a regular file")
+            if not self._trusted_plugin_owner_is_allowed(opened_info):
+                raise PermissionError("Opened plugin is owned by an untrusted user")
             if opened_info.st_mode & writable_mask:
                 raise PermissionError("Plugin file is writable by group/other")
 
@@ -349,6 +350,10 @@ class MAIAFrameworkOrchestrator:
             path_info = os.stat(resolved_path, follow_symlinks=False)
             if not stat.S_ISREG(path_info.st_mode):
                 raise PermissionError("Plugin path is no longer a regular file")
+            if not self._trusted_plugin_owner_is_allowed(path_info):
+                raise PermissionError("Plugin path is owned by an untrusted user")
+            if getattr(path_info, "st_uid", None) != getattr(opened_info, "st_uid", None):
+                raise PermissionError("Plugin ownership changed between validation and open")
             if (path_info.st_dev, path_info.st_ino) != (
                 opened_info.st_dev,
                 opened_info.st_ino,
@@ -360,12 +365,16 @@ class MAIAFrameworkOrchestrator:
                 source = plugin_file.read()
                 after_read = os.fstat(plugin_file.fileno())
 
+            if not self._trusted_plugin_owner_is_allowed(after_read):
+                raise PermissionError("Plugin ownership changed while being read")
+
             before_signature = (
                 opened_info.st_dev,
                 opened_info.st_ino,
                 opened_info.st_size,
                 opened_info.st_mtime_ns,
                 opened_info.st_ctime_ns,
+                getattr(opened_info, "st_uid", None),
             )
             after_signature = (
                 after_read.st_dev,
@@ -373,6 +382,7 @@ class MAIAFrameworkOrchestrator:
                 after_read.st_size,
                 after_read.st_mtime_ns,
                 after_read.st_ctime_ns,
+                getattr(after_read, "st_uid", None),
             )
             if before_signature != after_signature:
                 raise PermissionError("Plugin file changed while being read")
