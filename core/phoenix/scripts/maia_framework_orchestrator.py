@@ -10,6 +10,8 @@ import sys
 import os
 import json
 import importlib.util
+import stat
+import uuid
 from datetime import datetime
 
 class MAIAFrameworkOrchestrator:
@@ -17,9 +19,12 @@ class MAIAFrameworkOrchestrator:
     🎯 The orchestrator that demonstrates M.A.I.A.'s cognitive schema in action.
     """
     
-    def __init__(self):
+    def __init__(self, trusted_plugin_dirs=None):
         """
         🧭 ORIENT: Initialize the orchestrator with the cognitive schema.
+
+        Plugin files are executable code. Only explicitly trusted directories
+        may supply plugins; this is an allowlist, not a Python sandbox.
         """
         self.plugin_registry = {}
         self.loaded_plugins = {}
@@ -31,10 +36,36 @@ class MAIAFrameworkOrchestrator:
             "action_history": [],
             "reflection_insights": []
         }
-        
+
+        if trusted_plugin_dirs is None:
+            trusted_plugin_dirs = (
+                "/home/ubuntu/plugins",
+                "./plugins",
+                "./maia_plugins"
+            )
+        elif isinstance(trusted_plugin_dirs, (str, bytes, os.PathLike)):
+            raise TypeError(
+                "trusted_plugin_dirs must be an iterable of directory paths"
+            )
+
+        self.trusted_plugin_dirs = []
+        for directory in trusted_plugin_dirs:
+            if not isinstance(directory, (str, os.PathLike)):
+                raise TypeError("Each trusted plugin directory must be a path")
+            directory = os.fspath(directory)
+            if not isinstance(directory, str) or not directory.strip():
+                raise ValueError("Trusted plugin directory cannot be empty")
+            resolved_directory = os.path.realpath(
+                os.path.abspath(os.path.expanduser(directory))
+            )
+            if os.path.dirname(resolved_directory) == resolved_directory:
+                raise ValueError("Filesystem root cannot be a trusted plugin directory")
+            self.trusted_plugin_dirs.append(resolved_directory)
+
         print("🧠 M.A.I.A. Framework Orchestrator Initialized")
         print("⚜️ Operating under THE ULTIMATE COGNITIVE ACTION SCHEMA")
         print("🔥 !GOLDEN_SOVEREIGN_PROTOCOL Active")
+        print(f"🔒 Trusted plugin directories: {self.trusted_plugin_dirs}")
         
     def perceive(self, input_signal, signal_type="USER_COMMAND"):
         """
@@ -177,27 +208,238 @@ class MAIAFrameworkOrchestrator:
         
         return reflection
     
+    def _trusted_plugin_owner_is_allowed(self, info):
+        """Allow only root or the effective service UID to own trust-path objects."""
+        effective_uid = getattr(os, "geteuid", None)
+        if not callable(effective_uid):
+            return True
+        return getattr(info, "st_uid", None) in (0, effective_uid())
+
+    def _trusted_plugin_root_chain_is_private(self, trusted_dir):
+        """Reject untrusted owners and replaceable ancestors of a trusted root."""
+        writable_mask = stat.S_IWGRP | stat.S_IWOTH
+        sticky_mask = getattr(stat, "S_ISVTX", 0)
+        current = trusted_dir
+
+        while True:
+            try:
+                info = os.stat(current, follow_symlinks=False)
+            except OSError:
+                return False
+
+            if not stat.S_ISDIR(info.st_mode):
+                return False
+            if not self._trusted_plugin_owner_is_allowed(info):
+                return False
+            if info.st_mode & writable_mask and not info.st_mode & sticky_mask:
+                return False
+
+            parent = os.path.dirname(current)
+            if parent == current:
+                return True
+            current = parent
+
+    def _trusted_plugin_location_is_private(self, trusted_dir, resolved_path):
+        """
+        Require the trusted root and every descendant directory to be
+        non-writable by group/other, and the plugin file to be regular and
+        non-writable by group/other.
+        """
+        writable_mask = stat.S_IWGRP | stat.S_IWOTH
+        try:
+            file_info = os.stat(resolved_path, follow_symlinks=False)
+        except OSError:
+            return False
+        if (
+            not stat.S_ISREG(file_info.st_mode)
+            or file_info.st_mode & writable_mask
+            or not self._trusted_plugin_owner_is_allowed(file_info)
+        ):
+            return False
+
+        current = os.path.dirname(resolved_path)
+        while True:
+            try:
+                if os.path.commonpath((trusted_dir, current)) != trusted_dir:
+                    return False
+                directory_info = os.stat(current, follow_symlinks=False)
+            except (OSError, ValueError):
+                return False
+
+            if (
+                not stat.S_ISDIR(directory_info.st_mode)
+                or directory_info.st_mode & writable_mask
+                or not self._trusted_plugin_owner_is_allowed(directory_info)
+            ):
+                return False
+            if current == trusted_dir:
+                return self._trusted_plugin_root_chain_is_private(trusted_dir)
+
+            parent = os.path.dirname(current)
+            if parent == current:
+                return False
+            current = parent
+
+    def _resolve_trusted_plugin_path(self, plugin_path):
+        """
+        Resolve a plugin path and enforce containment in a trusted directory.
+
+        realpath resolves symlinks before containment is checked, while
+        commonpath avoids unsafe string-prefix comparisons such as
+        '/trusted-elsewhere' matching '/trusted'. The trusted root and each
+        descendant directory must not be group/world writable.
+        """
+        if not isinstance(plugin_path, (str, os.PathLike)):
+            raise ValueError("Plugin path must be a non-empty filesystem path")
+
+        raw_path = os.fspath(plugin_path)
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            raise ValueError("Plugin path must be a non-empty filesystem path")
+
+        resolved_path = os.path.realpath(
+            os.path.abspath(os.path.expanduser(raw_path))
+        )
+        if os.path.splitext(resolved_path)[1].lower() != ".py":
+            raise ValueError("Only Python .py plugin files are allowed")
+
+        matching_root = False
+        for trusted_dir in self.trusted_plugin_dirs:
+            try:
+                if os.path.commonpath((trusted_dir, resolved_path)) != trusted_dir:
+                    continue
+            except ValueError:
+                continue
+
+            matching_root = True
+            if self._trusted_plugin_location_is_private(trusted_dir, resolved_path):
+                return resolved_path
+
+        if matching_root:
+            raise PermissionError(
+                "Plugin file or trusted path is writable by group/other or is not regular"
+            )
+        raise PermissionError("Plugin path is outside all configured trusted plugin directories")
+
+    def _read_trusted_plugin_source(self, resolved_path):
+        """
+        Read the exact file object that was validated, rather than asking an
+        import loader to reopen the pathname after validation.
+
+        The descriptor identity is compared with the current path entry to
+        detect replacement between path validation and open. The file is
+        compiled from the bytes read through that descriptor.
+        """
+        descriptor = None
+        writable_mask = stat.S_IWGRP | stat.S_IWOTH
+        try:
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(resolved_path, flags)
+
+            opened_info = os.fstat(descriptor)
+            if not stat.S_ISREG(opened_info.st_mode):
+                raise PermissionError("Opened plugin is not a regular file")
+            if not self._trusted_plugin_owner_is_allowed(opened_info):
+                raise PermissionError("Opened plugin is owned by an untrusted user")
+            if opened_info.st_mode & writable_mask:
+                raise PermissionError("Plugin file is writable by group/other")
+
+            if self._resolve_trusted_plugin_path(resolved_path) != resolved_path:
+                raise PermissionError("Plugin path changed during validation")
+
+            path_info = os.stat(resolved_path, follow_symlinks=False)
+            if not stat.S_ISREG(path_info.st_mode):
+                raise PermissionError("Plugin path is no longer a regular file")
+            if not self._trusted_plugin_owner_is_allowed(path_info):
+                raise PermissionError("Plugin path is owned by an untrusted user")
+            if getattr(path_info, "st_uid", None) != getattr(opened_info, "st_uid", None):
+                raise PermissionError("Plugin ownership changed between validation and open")
+            if (path_info.st_dev, path_info.st_ino) != (
+                opened_info.st_dev,
+                opened_info.st_ino,
+            ):
+                raise PermissionError("Plugin file changed between validation and open")
+
+            with os.fdopen(descriptor, "rb") as plugin_file:
+                descriptor = None
+                source = plugin_file.read()
+                after_read = os.fstat(plugin_file.fileno())
+
+            if not self._trusted_plugin_owner_is_allowed(after_read):
+                raise PermissionError("Plugin ownership changed while being read")
+
+            before_signature = (
+                opened_info.st_dev,
+                opened_info.st_ino,
+                opened_info.st_size,
+                opened_info.st_mtime_ns,
+                opened_info.st_ctime_ns,
+                getattr(opened_info, "st_uid", None),
+            )
+            after_signature = (
+                after_read.st_dev,
+                after_read.st_ino,
+                after_read.st_size,
+                after_read.st_mtime_ns,
+                after_read.st_ctime_ns,
+                getattr(after_read, "st_uid", None),
+            )
+            if before_signature != after_signature:
+                raise PermissionError("Plugin file changed while being read")
+
+            return importlib.util.decode_source(source)
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
     def _discover_and_register_plugin(self, plugin_path):
         """
-        Internal method to discover and register a plugin.
-        """
-        try:
-            # Dynamic loading
-            spec = importlib.util.spec_from_file_location("plugin_module", plugin_path)
-            plugin_module = importlib.util.module_from_spec(spec)
-            sys.modules["plugin_module"] = plugin_module
-            spec.loader.exec_module(plugin_module)
+        Discover and register a plugin only after validating its trusted path.
 
-            manifest = plugin_module.get_plugin_manifest()
-            plugin_name = manifest["name"]
+        Trusted plugin code still executes with this process's privileges.
+        Keep trusted directories writable only by authorized operators.
+        """
+        module_name = None
+        try:
+            resolved_path = self._resolve_trusted_plugin_path(plugin_path)
+            module_name = f"maia_plugin_{uuid.uuid4().hex}"
+            source = self._read_trusted_plugin_source(resolved_path)
+            spec = importlib.util.spec_from_loader(
+                module_name, loader=None, origin=resolved_path
+            )
+            if spec is None:
+                raise ImportError("Unable to create a module specification")
+            spec.has_location = True
+
+            plugin_module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = plugin_module
+            code = compile(source, resolved_path, "exec")
+            exec(code, plugin_module.__dict__)
+
+            manifest_fn = getattr(plugin_module, "get_plugin_manifest", None)
+            if not callable(manifest_fn):
+                raise ValueError("Plugin must define callable get_plugin_manifest()")
+
+            manifest = manifest_fn()
+            if not isinstance(manifest, dict):
+                raise TypeError("Plugin manifest must be a dictionary")
+
+            plugin_name = manifest.get("name")
+            if not isinstance(plugin_name, str) or not plugin_name.strip():
+                raise ValueError("Plugin manifest must contain a non-empty string name")
+            plugin_name = plugin_name.strip()
+            if plugin_name in self.plugin_registry or plugin_name in self.loaded_plugins:
+                raise ValueError(f"Plugin name is already registered: {plugin_name}")
 
             self.plugin_registry[plugin_name] = manifest
             self.loaded_plugins[plugin_name] = plugin_module
-            
+
             print(f"✅ Plugin '{plugin_name}' discovered and registered successfully")
             return {"success": True, "plugin_name": plugin_name, "manifest": manifest}
-            
+
         except Exception as e:
+            if module_name is not None:
+                sys.modules.pop(module_name, None)
             error_msg = f"Failed to discover/register plugin at {plugin_path}: {e}"
             print(f"❌ {error_msg}")
             return {"success": False, "error": error_msg}
